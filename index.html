@@ -625,13 +625,24 @@ window.PANCAKE_DESIGNS=[{"id":"513959438095004","name":"AngelaBaby","cat":"Peopl
   }
 
   // Web Serial transport (Chrome/Edge on a computer, Bluetooth COM port).
+  // Android Chrome reaches Bluetooth through Web Serial only by service:
+  // ask for the standard Serial Port Profile the HC-05 module offers. On
+  // Windows the module is already a COM port, so no filter there.
+  const SPP = '00001101-0000-1000-8000-00805f9b34fb';
+  const IS_ANDROID = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+  function pickPort() {
+    return navigator.serial.requestPort(IS_ANDROID
+      ? { filters: [{ bluetoothServiceClassId: SPP }], allowedBluetoothServiceClassIds: [SPP] }
+      : {});
+  }
+
   class SerialTransport {
     constructor(baudRate = 115200) { this.baudRate = baudRate; this.port = null; }
     // Only checks the API exists. Whether this page may use it is found out
     // from requestPort() itself, which throws SecurityError when blocked.
     static supported() { return 'serial' in navigator; }
     async open() {
-      this.port = await navigator.serial.requestPort();
+      this.port = await pickPort();
       this.info = this.port.getInfo ? this.port.getInfo() : {};
       if (this.info.usbVendorId) this.bootDelay = 3000;
       await this.port.open({ baudRate: this.baudRate });
@@ -753,7 +764,7 @@ window.PANCAKE_DESIGNS=[{"id":"513959438095004","name":"AngelaBaby","cat":"Peopl
     async close() { this.onClose = null; }
   }
 
-  window.PancakeEngine = { scanSpeeds, parsePan, generate, primeGcode, simulate, flowFor, preDelayFor, placeStrokes, HW, DEFAULTS, Machine, SerialTransport, PracticeTransport };
+  window.PancakeEngine = { scanSpeeds, pickPort, IS_ANDROID, parsePan, generate, primeGcode, simulate, flowFor, preDelayFor, placeStrokes, HW, DEFAULTS, Machine, SerialTransport, PracticeTransport };
 })();
 
 </script>
@@ -1066,6 +1077,7 @@ window.PANCAKE_DESIGNS=[{"id":"513959438095004","name":"AngelaBaby","cat":"Peopl
   // Plain-language fix for each way connecting can fail.
   function connectHelp(err) {
     const msg = String(err && err.message || err);
+    if (err.name === 'NotFoundError' && E.IS_ANDROID) return 'No machine showed up. Check three things: the phone is paired with "Pancake" in Android Bluetooth settings; Chrome has the Nearby devices permission (Android Settings → Apps → Chrome → Permissions); and Chrome is up to date in the Play Store. Then switch the machine on, reload this page and press Connect again.';
     if (err.name === 'NotFoundError') return 'No port was chosen. If the list was empty with a USB cable plugged in, Windows probably needs a driver: open Device Manager and look for an "Unknown device" or a yellow warning under Ports or Other devices.';
     if (err.name === 'SecurityError') return 'This page is not allowed to use serial ports. Open the pancake-studio.html file directly in Chrome or Edge instead of through a link.';
     if (err.name === 'InvalidStateError') return 'That port is already open, maybe in another tab or app. Close it there, or reload this page.';
@@ -1100,7 +1112,7 @@ window.PANCAKE_DESIGNS=[{"id":"513959438095004","name":"AngelaBaby","cat":"Peopl
 
   $('scanBtn').onclick = async () => {
     let port;
-    try { port = await navigator.serial.requestPort(); }
+    try { port = await E.pickPort(); }
     catch (err) { showNotice(connectHelp(err), true); return; }
     $('consoleBox').open = true;
     $('scanBtn').disabled = $('connectBtn').disabled = true;
